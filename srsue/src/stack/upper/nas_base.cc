@@ -135,14 +135,12 @@ bool nas_base::integrity_check(byte_buffer_t* pdu)
   }
 }
 
-void nas_base::cipher_decrypt(byte_buffer_t* pdu)
+void nas_base::cipher_encrypt(byte_buffer_t* pdu)
 {
-  byte_buffer_t tmp_pdu;
+  byte_buffer_t pdu_tmp;
 
-  /// The RX_COUNT state variable has been already updated after checking integrity,
-  /// as such we do not need to estimate it again.
   if (ctxt_base.cipher_algo != CIPHERING_ALGORITHM_ID_EEA0) {
-    logger.debug("Decrypting PDU. count=%d", ctxt_base.rx_count);
+    logger.debug("Encrypting PDU. count=%d", ctxt_base.tx_count);
   }
   
   switch (ctxt_base.cipher_algo) {
@@ -188,9 +186,10 @@ void nas_base::cipher_decrypt(byte_buffer_t* pdu)
 {
   byte_buffer_t tmp_pdu;
 
-  uint32_t count_est = (ctxt_base.rx_count & 0x00FFFF00u) | pdu->msg[5];
+  /// The RX_COUNT state variable has been already updated after checking integrity,
+  /// as such we do not need to estimate it again.
   if (ctxt_base.cipher_algo != CIPHERING_ALGORITHM_ID_EEA0) {
-    logger.debug("Decrypting PDU. Local: count=%d, Received: count=%d", ctxt_base.rx_count, count_est);
+    logger.debug("Decrypting PDU. count=%d", ctxt_base.rx_count);
   }
 
   switch (ctxt_base.cipher_algo) {
