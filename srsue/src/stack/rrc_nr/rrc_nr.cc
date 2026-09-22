@@ -522,11 +522,12 @@ void rrc_nr::handle_sib1(const sib1_s& sib1)
   }
 
   phy_cfg_state = PHY_CFG_STATE_SA_SIB_CFG;
+  phy_cfg.apply_t_offset = true; // apply t_offset only once, after SIB1, otherwise RAR TA will be cleared.
   if (not phy->set_config(phy_cfg)) {
     logger.warning("Could not set phy config.");
     return;
   }
-
+  phy_cfg.apply_t_offset = false; // do not apply t_offset after RAR
   // Notify cell selector of successful SIB1 reception
   cell_selector.trigger(true);
 }
@@ -1248,6 +1249,11 @@ bool rrc_nr::apply_sp_cell_init_dl_pdsch(const asn1::rrc_nr::pdsch_cfg_s& pdsch_
       // See TS 38.331, DMRS-DownlinkConfig. Also, see TS 38.214, 5.1.6.2 - DM-RS reception procedure.
       phy_cfg.pdsch.dmrs_typeA.additional_pos = srsran_dmrs_sch_add_pos_2;
       phy_cfg.pdsch.dmrs_typeA.present        = true;
+      srsran_dmrs_sch_add_pos_t srsran_dmrs_sch_add_pos;
+      if (pdsch_cfg.dmrs_dl_for_pdsch_map_type_a.setup().dmrs_add_position_present and
+          make_phy_dmrs_dl_additional_pos(pdsch_cfg.dmrs_dl_for_pdsch_map_type_a.setup(), &srsran_dmrs_sch_add_pos)) {
+        phy_cfg.pdsch.dmrs_typeA.additional_pos = srsran_dmrs_sch_add_pos;
+      }
     } else {
       logger.warning("Option dmrs_dl_for_pdsch_map_type_a not of type setup");
       return false;
@@ -1703,6 +1709,11 @@ bool rrc_nr::apply_sp_cell_ded_ul_pusch(const asn1::rrc_nr::pusch_cfg_s& pusch_c
       // // See TS 38.331, DMRS-UplinkConfig. Also, see TS 38.214, 6.2.2 - UE DM-RS transmission procedure.
       phy_cfg.pusch.dmrs_typeA.additional_pos = srsran_dmrs_sch_add_pos_2;
       phy_cfg.pusch.dmrs_typeA.present        = true;
+      srsran_dmrs_sch_add_pos_t srsran_dmrs_sch_add_pos;
+      if (pusch_cfg.dmrs_ul_for_pusch_map_type_a.setup().dmrs_add_position_present and
+          make_phy_dmrs_ul_additional_pos(pusch_cfg.dmrs_ul_for_pusch_map_type_a.setup(), &srsran_dmrs_sch_add_pos)) {
+        phy_cfg.pusch.dmrs_typeA.additional_pos = srsran_dmrs_sch_add_pos;
+      }
     } else {
       logger.warning("Option dmrs_ul_for_pusch_map_type_a not of type setup");
       return false;
@@ -1931,11 +1942,11 @@ bool rrc_nr::update_sp_cell_cfg(const sp_cell_cfg_s& sp_cell_cfg)
     srsran::phy_cfg_nr_t current_phycfg = phy_cfg;
     current_phycfg.csi                  = prev_csi;
     phy_cfg_state                       = PHY_CFG_STATE_NSA_APPLY_SP_CELL;
-    phy->set_config(current_phycfg);
+    phy->set_config(current_phycfg); // t_offset is not applied
   } else {
     // apply full config immediately
     phy_cfg_state = PHY_CFG_STATE_SA_FULL_CFG;
-    phy->set_config(phy_cfg);
+    phy->set_config(phy_cfg); // t_offset is not applied
   }
 
   return true;
@@ -2302,7 +2313,7 @@ void rrc_nr::ra_completed()
   if (rrc_eutra) {
     logger.debug("Applying remaining CSI configuration.");
     phy_cfg_state = PHY_CFG_STATE_NSA_RA_COMPLETED;
-    phy->set_config(phy_cfg);
+    phy->set_config(phy_cfg); // t_offset is not applied
   } else {
     phy_cfg_state = PHY_CFG_STATE_NONE;
   }

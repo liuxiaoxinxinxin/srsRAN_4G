@@ -180,7 +180,7 @@ void proc_ra_nr::ra_preamble_transmission()
                                    (preamble_transmission_counter - 1) * rach_cfg.powerRampingStep +
                                    power_offset_2step_ra;
   if (rach_cfg.nof_preambles) {
-    preamble_index = srsran_random_uniform_int_dist(random_gen, 0, rach_cfg.nof_preambles);
+    preamble_index = srsran_random_uniform_int_dist(random_gen, 0, rach_cfg.nof_preambles - 1);
   } else {
     preamble_index = 0;
   }
@@ -311,6 +311,7 @@ void proc_ra_nr::ra_error()
   preamble_transmission_counter++;
   contention_resolution_timer.stop();
   mac.set_temp_crnti(SRSRAN_INVALID_RNTI);
+  mac.reset_harq();
   uint32_t backoff_wait;
   bool     ra_procedure_completed = false; // true = (unsuccessfully) completed, false = uncompleted
 

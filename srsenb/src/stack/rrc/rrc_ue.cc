@@ -662,16 +662,38 @@ void rrc::ue::handle_rrc_con_reest_req(rrc_conn_reest_request_s* msg)
         old_ue_it->second->ue_cell_list.get_enb_cc_idx(old_cell->enb_cc_idx) == nullptr) {
       // Check if old UE context does not belong to an S1-Handover UE.
       old_ue = find_handover_source_ue(old_rnti, old_pci);
+
       if (old_ue == nullptr) {
         send_connection_reest_rej(procedure_result_code::error_unknown_rnti);
         parent->logger.info(
             "RRCReestablishmentReject for rnti=0x%x. Cause: no rnti=0x%x context available", rnti, old_rnti);
         srsran::console("RRCReestablishmentReject for rnti=0x%x. Cause: no context available\n", rnti);
         return;
+      } else {
+        // The UE is a S1-Handover UE In the target cell.
+        old_cell = old_ue->ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common;
+        parent->logger.info("Old UE context {rnti=0x%x, pci=%d} was stored in UE context {rnti=0x%x, pci=%d} in this "
+                            "gNB during S1-Handover. "
+                            "Reestablishment will be handled by the target cell.",
+                            old_rnti,
+                            old_pci,
+                            old_ue->rnti,
+                            old_cell->cell_cfg.pci);
+        old_rnti = old_ue->rnti;
+        old_pci  = old_cell->cell_cfg.pci;
       }
     } else {
       old_ue = old_ue_it->second.get();
     }
+  }
+
+  if (not parent->s1ap->user_exists(old_rnti)) {
+    // For extra safety, ensure the UE context is correctly created in the S1AP layer.
+    parent->logger.error(
+        "RRCReestablishmentReject for rnti=0x%x. Cause: no rnti=0x%x context available in S1AP", rnti, old_rnti);
+    srsran::console("RRCReestablishmentReject for rnti=0x%x. Cause: no context available\n", rnti);
+    send_connection_reest_rej(procedure_result_code::error_unknown_rnti);
+    return;
   }
 
   bool old_ue_supported_endc = old_ue->endc_handler and old_ue->endc_handler->is_endc_supported();
@@ -693,7 +715,16 @@ void rrc::ue::handle_rrc_con_reest_req(rrc_conn_reest_request_s* msg)
     old_ue->endc_handler->trigger(rrc_endc::rrc_reest_rx_ev{});
   }
 
-  // Cancel Handover in Target eNB if on-going
+  // If the current Pcell is an S1 HO target eNB, we defer an Handover Notification to the core.
+  if (old_ue->mobility_handler->is_s1_ho_target_enb()) {
+    parent->logger.info("ConnectionReestablishmentRequest for rnti=0x%x, which was doing S1 Handover. Deferring "
+                        "Handover Notification...",
+                        old_rnti);
+    ho_notify_pending = true;
+    return;
+  }
+
+  // Cancel S1 Handover in old UE, if on-going.
   asn1::s1ap::cause_c cause;
   cause.set_radio_network().value = asn1::s1ap::cause_radio_network_opts::interaction_with_other_proc;
   old_ue->mobility_handler->trigger(rrc_mobility::ho_cancel_ev{cause});
@@ -982,6 +1013,14 @@ void rrc::ue::handle_rrc_reconf_complete(rrc_conn_recfg_complete_s* msg, srsran:
 
   // Many S1AP procedures end with RRC Reconfiguration. Notify S1AP accordingly.
   parent->s1ap->notify_rrc_reconf_complete(rnti);
+
+  if (ho_notify_pending) {
+    parent->logger.info("Sending Handover Notification to S1AP...");
+    uint64_t eci =
+        (parent->cfg.enb_id << 8u) + ue_cell_list.get_ue_cc_idx(UE_PCELL_CC_IDX)->cell_common->cell_cfg.cell_id;
+    parent->s1ap->send_ho_notify(rnti, eci);
+    ho_notify_pending = false;
+  }
 }
 
 void rrc::ue::send_ue_info_req()
